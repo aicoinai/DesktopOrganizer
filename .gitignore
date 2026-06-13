@@ -1,6 +1,9 @@
 # Rust build artifacts
 /target/
 
+# Release packages (uploaded separately to GitHub Releases)
+/release/
+
 # IDE
 .idea/
 .vscode/

@@ -1815,30 +1815,73 @@ impl eframe::App for App {
 
 fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    // Try .ttf CJK fonts first (egui supports .ttf but NOT .ttc collections)
-    let font_paths: &[&str] = &[
-        r"C:\Windows\Fonts\Deng.ttf",
-        r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\simkai.ttf",
-        r"C:\Windows\Fonts\simfang.ttf",
-        r"C:\Windows\Fonts\STXIHEI.TTF",
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\simsun.ttc",
-        r"C:\Windows\Fonts\msjh.ttc",
-    ];
-    for path in font_paths {
+
+    // Strategy: Load fonts in priority order.
+    // egui inserts at position 0 so the LAST inserted has highest priority.
+    // Malgun Gothic is the primary font: covers Latin + Korean Hangul (full) +
+    //   CJK Hanja (broad) — one font handles Korean + Chinese + ASCII.
+    // CJK fallback: simhei fills any CJK gaps in Malgun.
+    // Devanagari fallback: Segoe UI for Hindi script.
+    //
+    // Load order (lowest priority first, highest last):
+    //   1. deva (Segoe UI)     – lowest priority, only for Devanagari fallback
+    //   2. cjk  (simhei/Deng)  – CJK supplement
+    //   3. ko   (malgun)       – PRIMARY font (Korean + CJK + Latin)
+
+    let mut load_font = |key: &str, path: &str| -> bool {
         if let Ok(data) = std::fs::read(path) {
-            fonts.font_data.insert("cjk".to_owned(), std::sync::Arc::new(egui::FontData::from_owned(data)));
-            if let Some(f) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                f.insert(0, "cjk".to_owned());
-            }
-            if let Some(f) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                f.insert(0, "cjk".to_owned());
-            }
-            ctx.set_fonts(fonts);
-            return;
+            fonts.font_data.insert(
+                key.to_owned(),
+                std::sync::Arc::new(egui::FontData::from_owned(data)),
+            );
+            true
+        } else {
+            false
+        }
+    };
+
+    // Devanagari fallback: local Noto Sans Devanagari (bundled)
+    if !load_font("deva", "assets/NotoSansDevanagari.ttf") {
+        if !load_font("deva", r"C:\Windows\Fonts\segoeui.ttf") {
+            let _ = load_font("deva", r"C:\Windows\Fonts\tahoma.ttf");
         }
     }
+
+    // 2. CJK supplement
+    if !load_font("cjk", r"C:\Windows\Fonts\simhei.ttf") {
+        if !load_font("cjk", r"C:\Windows\Fonts\Deng.ttf") {
+            let _ = load_font("cjk", r"C:\Windows\Fonts\STXIHEI.TTF");
+        }
+    }
+
+    // 3. PRIMARY: Malgun Gothic (Korean + CJK Hanja + Latin)
+    load_font("ko", r"C:\Windows\Fonts\malgun.ttf");
+
+    // Insert into families — last inserted = highest priority (position 0)
+    if let Some(f) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+        if fonts.font_data.contains_key("deva") {
+            f.insert(0, "deva".to_owned());
+        }
+        if fonts.font_data.contains_key("cjk") {
+            f.insert(0, "cjk".to_owned());
+        }
+        if fonts.font_data.contains_key("ko") {
+            f.insert(0, "ko".to_owned());
+        }
+    }
+    if let Some(f) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+        if fonts.font_data.contains_key("deva") {
+            f.insert(0, "deva".to_owned());
+        }
+        if fonts.font_data.contains_key("cjk") {
+            f.insert(0, "cjk".to_owned());
+        }
+        if fonts.font_data.contains_key("ko") {
+            f.insert(0, "ko".to_owned());
+        }
+    }
+
+    ctx.set_fonts(fonts);
 }
 
 fn main() -> Result<(), eframe::Error> {
