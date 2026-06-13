@@ -171,6 +171,16 @@ static ZH: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     // error messages
     "no_listview"     => "在{}找不到桌面图标列表",
     "no_listview_mon" => "在当前显示器上找不到桌面图标列表\n请确认该显示器已启用'显示桌面图标'",
+
+    // import / export
+    "import_btn"   => "📥 导入",
+    "export_btn"   => "📤 导出",
+    "import_title" => "导入区域配置",
+    "export_title" => "导出区域配置",
+    "import_status" => "已从 {} 导入配置",
+    "export_status" => "已导出配置到 {}",
+    "import_error"  => "导入失败：{}",
+    "export_error"  => "导出失败：{}",
 });
 
 // ───── English ─────
@@ -286,6 +296,16 @@ static EN: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
 
     "no_listview"     => "Cannot find desktop icon list on {}",
     "no_listview_mon" => "Cannot find desktop icon list on this monitor.\nMake sure 'Show desktop icons' is enabled.",
+
+    // import / export
+    "import_btn"   => "📥 Import",
+    "export_btn"   => "📤 Export",
+    "import_title" => "Import Zone Config",
+    "export_title" => "Export Zone Config",
+    "import_status" => "Imported config from {}",
+    "export_status" => "Exported config to {}",
+    "import_error"  => "Import failed: {}",
+    "export_error"  => "Export failed: {}",
 });
 
 // ───── 日本語 (Japanese) ─────
@@ -401,6 +421,15 @@ static JA: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
 
     "no_listview"     => "{}にデスクトップアイコンリストが見つかりません",
     "no_listview_mon" => "このモニターにデスクトップアイコンリストが見つかりません\n「デスクトップアイコンの表示」が有効か確認してください",
+
+    "import_btn"   => "📥 インポート",
+    "export_btn"   => "📤 エクスポート",
+    "import_title" => "ゾーン設定をインポート",
+    "export_title" => "ゾーン設定をエクスポート",
+    "import_status" => "{} から設定をインポートしました",
+    "export_status" => "設定を {} にエクスポートしました",
+    "import_error"  => "インポート失敗：{}",
+    "export_error"  => "エクスポート失敗：{}",
 });
 
 // ───── 한국어 (Korean) ─────
@@ -516,6 +545,15 @@ static KO: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
 
     "no_listview"     => "{}에서 데스크톱 아이콘 목록을 찾을 수 없습니다",
     "no_listview_mon" => "이 모니터에서 데스크톱 아이콘 목록을 찾을 수 없습니다\n'바탕 화면 아이콘 표시'가 활성화되어 있는지 확인하세요",
+
+    "import_btn"   => "📥 가져오기",
+    "export_btn"   => "📤 내보내기",
+    "import_title" => "영역 설정 가져오기",
+    "export_title" => "영역 설정 내보내기",
+    "import_status" => "{} 에서 설정을 가져왔습니다",
+    "export_status" => "설정을 {} 로 내보냈습니다",
+    "import_error"  => "가져오기 실패：{}",
+    "export_error"  => "내보내기 실패：{}",
 });
 
 // ───── हिन्दी (Hindi) ─────
@@ -633,6 +671,15 @@ static HI: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
 
     "no_listview"     => "{} पर डेस्कटॉप आइकन सूची नहीं मिली",
     "no_listview_mon" => "इस मॉनिटर पर डेस्कटॉप आइकन सूची नहीं मिली\nकृपया 'डेस्कटॉप आइकन दिखाएं' सक्षम करें",
+
+    "import_btn"   => "📥 आयात",
+    "export_btn"   => "📤 निर्यात",
+    "import_title" => "क्षेत्र कॉन्फ़िग आयात करें",
+    "export_title" => "क्षेत्र कॉन्फ़िग निर्यात करें",
+    "import_status" => "{} से कॉन्फ़िग आयात किया",
+    "export_status" => "कॉन्फ़िग को {} में निर्यात किया",
+    "import_error"  => "आयात विफल：{}",
+    "export_error"  => "निर्यात विफल：{}",
 });
 
 // ═══════════════════════════════════════════

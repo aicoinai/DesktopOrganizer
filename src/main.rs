@@ -10,6 +10,7 @@ use config::*;
 use egui::*;
 use egui::epaint::StrokeKind;
 use i18n::{t, preset_name, shape_mode_label, Lang};
+use rfd::FileDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ShapeTool { Rect, Ellipse, Star, Polygon }
@@ -616,19 +617,70 @@ impl App {
                     Ok(count) => {
                         let child_count: usize = zones.iter().map(|z| z.children.iter().filter(|c| c.enabled).count()).sum();
                         let detail = if child_count > 0 {
-                            format!("[{}] ✅ 整理完成 — {} 图标 → {}/{} 区域 ({}/{} 父区域 + {} 子区域)", 
-                                m.name, count, zone_count, total_zones, zone_count, total_zones, child_count)
+                            format!("[{}] {}", m.name,
+                                self.tr("organize_msg")
+                                    .replacen("{}", &count.to_string(), 1)
+                                    .replacen("{}", &count.to_string(), 1)
+                                    .replacen("{}", &zone_count.to_string(), 1)
+                                    .replacen("{}", &total_zones.to_string(), 1)
+                                    .replacen("{}", &zone_count.to_string(), 1)
+                                    .replacen("{}", &total_zones.to_string(), 1)
+                                    .replacen("{}", &child_count.to_string(), 1))
                         } else {
-                            format!("[{}] ✅ 整理完成 — {} 图标 → {}/{} 区域", m.name, count, zone_count, total_zones)
+                            format!("[{}] {}", m.name, self.trf4("organize_msg_simple", count, count, zone_count, total_zones))
                         };
                         msgs.push(detail);
                     }
-                    Err(e) => msgs.push(format!("[{}] ❌ 错误：{}", m.name, e)),
+                    Err(e) => msgs.push(format!("[{}] {}", m.name, self.trf1("organize_error", e))),
                 }
             }
         }
         self.status = msgs.join("  |  ");
         self.preview_dirty = true;
+    }
+
+    fn export_zones(&mut self) {
+        self.save_editor();
+        if let Some(path) = FileDialog::new()
+            .set_title(self.tr("export_title"))
+            .add_filter("JSON", &["json"])
+            .set_file_name("desktop_zones.json")
+            .save_file()
+        {
+            match serde_json::to_string_pretty(&self.zones) {
+                Ok(json) => {
+                    if let Err(e) = std::fs::write(&path, &json) {
+                        self.status = self.trf1("export_error", e);
+                    } else {
+                        self.status = self.trf1("export_status", path.display());
+                    }
+                }
+                Err(e) => self.status = self.trf1("export_error", e),
+            }
+        }
+    }
+
+    fn import_zones(&mut self) {
+        if let Some(path) = FileDialog::new()
+            .set_title(self.tr("import_title"))
+            .add_filter("JSON", &["json"])
+            .pick_file()
+        {
+            match std::fs::read_to_string(&path) {
+                Ok(json) => match serde_json::from_str::<Vec<Zone>>(&json) {
+                    Ok(zones) => {
+                        self.push_undo();
+                        self.zones = zones;
+                        self.sel_zone = -1;
+                        self.load_editor(-1);
+                        self.preview_dirty = true;
+                        self.status = self.trf1("import_status", path.display());
+                    }
+                    Err(e) => self.status = self.trf1("import_error", e),
+                },
+                Err(e) => self.status = self.trf1("import_error", e),
+            }
+        }
     }
 
     fn push_undo(&mut self) {
@@ -836,6 +888,13 @@ impl eframe::App for App {
                         self.sel_zone = -1;
                         self.load_editor(-1);
                         self.status = self.tr("reset_status").into();
+                    }
+                    ui.separator();
+                    if ui.button(self.tr("import_btn")).clicked() {
+                        self.import_zones();
+                    }
+                    if ui.button(self.tr("export_btn")).clicked() {
+                        self.export_zones();
                     }
                 });
             });
