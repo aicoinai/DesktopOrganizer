@@ -1,41 +1,46 @@
 # DesktopOrganizer
 
-桌面图标自动整理工具 — 零持久性、零后台进程、事件驱动。
+Desktop icon auto-organizer — zero persistence, zero background process, event-driven.
 
-## 功能
+![screenshot](assets/screenshot.png)
 
-- **智能分类** — 180+ 关键词类别匹配，`.exe` 按功能细分
-- **多显示器** — 每屏独立布局配置
-- **九宫格区域** — 默认 3×3 网格，支持子区域嵌套
-- **形状排列引擎** — 13 种排列形状
-- **撤销/重做** — 最多 50 层历史
-- **多语言** — 中文、English、한국어、日本語、हिन्दी
-- **托盘运行** — 最小化到系统托盘，事件驱动自动整理（零 CPU 空闲）
-- **拖拽缩放** — 区域大小和位置自由调整
+## Features
 
-## 技术栈
+- **Smart Classification** — 180+ keyword category matching, `.exe` sub-categorized by function
+- **Multi-Monitor** — Independent layout per display (3×3 grid by default)
+- **Shape Arrangement Engine** — 13 layout shapes with sub-zone nesting
+- **Undo/Redo** — Up to 50 history levels, drag-resize zones
+- **Multi-Language** — English, 中文, 한국어, 日本語, हिन्दी
+- **System Tray** — Minimize to tray, event-driven auto-organize via `ReadDirectoryChangesW` (zero CPU idle)
+- **Grid Snapping** — Multiple density presets (10/30/60/100px)
 
-- **Rust** + **eframe/egui** 0.31 + **windows-rs** 0.58
-- Win32 Shell API 直接操作桌面 ListView
-- `ReadDirectoryChangesW` 事件驱动桌面监控
-- `CreateMutexW` 单实例检查
+## Tech Stack
 
-## 构建
+| Component | Technology |
+|-----------|-----------|
+| Language | Rust |
+| UI Framework | eframe / egui 0.31 |
+| Win32 API | windows-rs 0.58 |
+| Desktop Control | Win32 Shell ListView API |
+| File Watcher | `ReadDirectoryChangesW` (event-driven) |
+| Single Instance | `CreateMutexW` |
+
+## Build
 
 ```bash
-cargo build --release           # 编译
-tools\inject_icon.bat            # 注入图标（需要 rcedit）
+cargo build --release           # Compile
+tools\inject_icon.bat            # Inject icon (requires rcedit)
 ```
 
-产物：`target/release/desktop-organizer.exe`
+Output: `target/release/desktop-organizer.exe`
 
-## 使用
+## Usage
 
-1. 运行 `desktop-organizer.exe`
-2. 右键托盘图标 → 选择语言
-3. 关闭窗口时选择「最小化到托盘」或「退出」
-4. 桌面文件变动自动触发整理
+1. Run `DesktopOrganizer.exe`
+2. Right-click tray icon → select language
+3. On close: choose "Minimize to tray" or "Exit"
+4. Desktop file changes trigger automatic reorganization
 
-## 许可
+## License
 
-MIT
+[MIT](LICENSE)
