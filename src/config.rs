@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::i18n::shape_mode_label;
+use crate::i18n::{self, preset_name, shape_mode_label, Lang};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ShapeMode {
@@ -84,7 +84,7 @@ pub struct Config {
 
 const CURRENT_CONFIG_VERSION: u32 = 3;
 
-pub fn load_config(monitor_idx: usize, mon_w: i32, mon_h: i32) -> Vec<Zone> {
+pub fn load_config(lang: Lang, monitor_idx: usize, mon_w: i32, mon_h: i32) -> Vec<Zone> {
     let path = config_path();
     if path.exists() {
         if let Ok(data) = std::fs::read_to_string(&path) {
@@ -101,7 +101,7 @@ pub fn load_config(monitor_idx: usize, mon_w: i32, mon_h: i32) -> Vec<Zone> {
             }
         }
     }
-    default_zones(mon_w, mon_h)
+    default_zones(lang, mon_w, mon_h)
 }
 
 pub fn save_config(zones: &[Zone], monitor_idx: usize) {
@@ -123,11 +123,11 @@ fn config_path() -> std::path::PathBuf {
         .join("config.json")
 }
 
-pub fn default_zones(mon_w: i32, mon_h: i32) -> Vec<Zone> {
-    default_zones_with_padding(mon_w, mon_h, 30)
+pub fn default_zones(lang: Lang, mon_w: i32, mon_h: i32) -> Vec<Zone> {
+    default_zones_with_padding(lang, mon_w, mon_h, 30)
 }
 
-pub fn default_zones_with_padding(mon_w: i32, mon_h: i32, pad: i32) -> Vec<Zone> {
+pub fn default_zones_with_padding(lang: Lang, mon_w: i32, mon_h: i32, pad: i32) -> Vec<Zone> {
     let cols: usize = 3;
     let cw = mon_w / cols as i32;
     let p = pad.max(5).min(150);
@@ -152,18 +152,18 @@ pub fn default_zones_with_padding(mon_w: i32, mon_h: i32, pad: i32) -> Vec<Zone>
     // Row 2 (20%): occasional — 游戏 / 系统工具 / 程序(未分类)
     // Row 3 (20%): rarely accessed — 系统图标 / 网络位置 / 其他文件
     let grid: [(&str, &[&str], bool); 12] = [
-        ("浏览器",   &["浏览器"],   false),
-        ("编程开发", &["编程开发"], false),
-        ("办公学习", &["办公学习"], false),
-        ("社交聊天", &["社交聊天"], false),
-        ("文件夹",   &["文件夹"],   false),
-        ("影音娱乐", &["影音娱乐"], false),
-        ("游戏",     &["游戏"],     false),
-        ("系统工具", &["系统工具"], false),
-        ("程序(未分类)", &["程序"], false),
-        ("系统图标", &["系统图标"], false),
-        ("网络位置", &["网络位置"], false),
-        ("其他文件", &[],           true),
+        (&preset_name(lang, "浏览器"),   &["浏览器"],   false),
+        (&preset_name(lang, "编程开发"), &["编程开发"], false),
+        (&preset_name(lang, "办公学习"), &["办公学习"], false),
+        (&preset_name(lang, "社交聊天"), &["社交聊天"], false),
+        (&preset_name(lang, "文件夹"),   &["文件夹"],   false),
+        (&preset_name(lang, "影音娱乐"), &["影音娱乐"], false),
+        (&preset_name(lang, "游戏"),     &["游戏"],     false),
+        (&preset_name(lang, "系统工具"), &["系统工具"], false),
+        (&i18n::t(lang, "zone_uncategorized"), &["程序"], false),
+        (&preset_name(lang, "系统图标"), &["系统图标"], false),
+        (&preset_name(lang, "网络位置"), &["网络位置"], false),
+        (&i18n::t(lang, "zone_other_files"), &[], true),
     ];
 
     let mut zones = Vec::with_capacity(12);

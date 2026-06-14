@@ -181,6 +181,18 @@ static ZH: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     "export_status" => "已导出配置到 {}",
     "import_error"  => "导入失败：{}",
     "export_error"  => "导出失败：{}",
+
+    // tray
+    "tray_btn"        => "🔽 托盘",
+    "tray_minimized"  => "已最小化到托盘，检测到新文件自动排列",
+    "tray_auto_organized" => "检测到新文件，已自动排列",
+    "tray_organized" => "已一键整理完成",
+    "already_running_title" => "桌面整理已运行",
+    "already_running_msg"   => "桌面整理助手已经在运行中，请检查托盘图标。",
+
+    // zone name translations
+    "zone_uncategorized" => "程序(未分类)",
+    "zone_other_files"   => "其他文件",
 });
 
 // ───── English ─────
@@ -306,6 +318,16 @@ static EN: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     "export_status" => "Exported config to {}",
     "import_error"  => "Import failed: {}",
     "export_error"  => "Export failed: {}",
+
+    "tray_btn"        => "🔽 Tray",
+    "tray_minimized"  => "Minimized to tray. Watching for new icons.",
+    "tray_auto_organized" => "New file detected — auto-organized.",
+    "tray_organized" => "One-click organize complete.",
+    "already_running_title" => "Already Running",
+    "already_running_msg"   => "Desktop Organizer is already running. Please check the tray icon.",
+
+    "zone_uncategorized" => "Apps (Uncat.)",
+    "zone_other_files"   => "Other Files",
 });
 
 // ───── 日本語 (Japanese) ─────
@@ -430,6 +452,16 @@ static JA: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     "export_status" => "設定を {} にエクスポートしました",
     "import_error"  => "インポート失敗：{}",
     "export_error"  => "エクスポート失敗：{}",
+
+    "tray_btn"        => "🔽 トレイ",
+    "tray_minimized"  => "トレイに最小化。新しいファイルを監視中。",
+    "tray_auto_organized" => "新しいファイルを検出 — 自動整理しました。",
+    "tray_organized" => "ワンクリック整理が完了しました。",
+    "already_running_title" => "起動済み",
+    "already_running_msg"   => "デスクトップ整理はすでに起動中です。トレイアイコンを確認してください。",
+
+    "zone_uncategorized" => "アプリ（未分類）",
+    "zone_other_files"   => "その他のファイル",
 });
 
 // ───── 한국어 (Korean) ─────
@@ -554,6 +586,16 @@ static KO: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     "export_status" => "설정을 {} 로 내보냈습니다",
     "import_error"  => "가져오기 실패：{}",
     "export_error"  => "내보내기 실패：{}",
+
+    "tray_btn"        => "🔽 트레이",
+    "tray_minimized"  => "트레이로 최소화. 새 파일 감시 중.",
+    "tray_auto_organized" => "새 파일 감지 — 자동 정리 완료.",
+    "tray_organized" => "원클릭 정리 완료.",
+    "already_running_title" => "이미 실행 중",
+    "already_running_msg"   => "데스크톱 정리 도우미가 이미 실행 중입니다. 트레이 아이콘을 확인해 주세요.",
+
+    "zone_uncategorized" => "앱 (미분류)",
+    "zone_other_files"   => "기타 파일",
 });
 
 // ───── हिन्दी (Hindi) ─────
@@ -680,6 +722,16 @@ static HI: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| tran
     "export_status" => "कॉन्फ़िग को {} में निर्यात किया",
     "import_error"  => "आयात विफल：{}",
     "export_error"  => "निर्यात विफल：{}",
+
+    "tray_btn"        => "🔽 ट्रे",
+    "tray_minimized"  => "ट्रे में छोटा किया। नई फ़ाइलों की निगरानी।",
+    "tray_auto_organized" => "नई फ़ाइल का पता चला — ऑटो-व्यवस्थित।",
+    "tray_organized" => "एक-क्लिक व्यवस्थित पूर्ण।",
+    "already_running_title" => "पहले से चल रहा है",
+    "already_running_msg"   => "डेस्कटॉप व्यवस्थापक पहले से चल रहा है। कृपया ट्रे आइकन देखें।",
+
+    "zone_uncategorized" => "ऐप्स (अवर्गीकृत)",
+    "zone_other_files"   => "अन्य फ़ाइलें",
 });
 
 // ═══════════════════════════════════════════
@@ -798,5 +850,24 @@ pub fn shape_mode_label(lang: Lang, mode: &ShapeMode) -> &'static str {
             ShapeMode::Cross => "क्रॉस",
             ShapeMode::Text => "पाठ",
         },
+    }
+}
+
+/// Translate a default zone name for display (handles preset names stored as Chinese keys)
+pub fn translate_zone_name(name: &str, lang: Lang) -> String {
+    match name {
+        "浏览器"       => preset_name(lang, "浏览器").to_string(),
+        "编程开发"     => preset_name(lang, "编程开发").to_string(),
+        "办公学习"     => preset_name(lang, "办公学习").to_string(),
+        "社交聊天"     => preset_name(lang, "社交聊天").to_string(),
+        "文件夹"       => preset_name(lang, "文件夹").to_string(),
+        "影音娱乐"     => preset_name(lang, "影音娱乐").to_string(),
+        "游戏"         => preset_name(lang, "游戏").to_string(),
+        "系统工具"     => preset_name(lang, "系统工具").to_string(),
+        "程序(未分类)" => t(lang, "zone_uncategorized").to_string(),
+        "系统图标"     => preset_name(lang, "系统图标").to_string(),
+        "网络位置"     => preset_name(lang, "网络位置").to_string(),
+        "其他文件"     => t(lang, "zone_other_files").to_string(),
+        _ => name.to_string(),
     }
 }

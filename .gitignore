@@ -14,3 +14,12 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+# Temp development files (keep locally, exclude from repo)
+rcedit_err.txt
+rcedit_out.txt
+test_icon.ico
+winres.rc
+tray_background_*.md
+tray_icon_fix_*.md
+tray_watcher_*.md
+assets/app_icon.rc

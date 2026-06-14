@@ -1,15 +1,17 @@
-﻿#![windows_subsystem = "console"]
+﻿#![windows_subsystem = "windows"]
 mod config;
 mod desktop;
 mod i18n;
 mod icons;
 mod shapes;
 mod shortcut;
+mod tray;
 
 use config::*;
 use egui::*;
 use egui::epaint::StrokeKind;
-use i18n::{t, preset_name, shape_mode_label, Lang};
+use i18n::{t, preset_name, shape_mode_label, translate_zone_name, Lang};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use rfd::FileDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,19 +30,29 @@ impl ShapeTool {
 
 #[derive(Clone)]
 struct Monitor {
-    name: String,
     x: i32, y: i32, w: i32, h: i32,
     primary: bool,
+    index: usize,
 }
 
-fn get_monitors(lang: Lang) -> Vec<Monitor> {
+impl Monitor {
+    fn display_name(&self, lang: Lang) -> String {
+        let key = if self.primary { "monitor_main" } else { "monitor_aux" };
+        i18n::t(lang, key)
+            .replacen("{}", &self.index.to_string(), 1)
+            .replacen("{}", &self.w.to_string(), 1)
+            .replacen("{}", &self.h.to_string(), 1)
+    }
+}
+
+fn get_monitors() -> Vec<Monitor> {
     let mut monitors = Vec::new();
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Graphics::Gdi::*;
         use windows::Win32::Foundation::*;
         const MONITORINFOF_PRIMARY: u32 = 1;
-        struct Ctx { out: *mut Vec<Monitor>, lang: Lang }
+        struct Ctx { out: *mut Vec<Monitor> }
         unsafe {
             extern "system" fn enum_proc(
                 hmon: HMONITOR, _hdc: HDC, _rc: *mut RECT, lp: LPARAM,
@@ -48,7 +60,6 @@ fn get_monitors(lang: Lang) -> Vec<Monitor> {
                 unsafe {
                     let ctx = &mut *(lp.0 as *mut Ctx);
                     let out = &mut *ctx.out;
-                    let lang = ctx.lang;
                     let mut info = MONITORINFOEXW::default();
                     info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
                     if GetMonitorInfoW(hmon, &mut info as *mut _ as *mut MONITORINFO).as_bool() {
@@ -56,23 +67,19 @@ fn get_monitors(lang: Lang) -> Vec<Monitor> {
                         let wr = rc.right - rc.left;
                         let hr = rc.bottom - rc.top;
                         let primary = (info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
-                        let name = if primary {
-                            t(lang, "monitor_main").replacen("{}", &format!("{}", out.len() + 1), 1).replacen("{}", &wr.to_string(), 1).replacen("{}", &hr.to_string(), 1)
-                        } else {
-                            t(lang, "monitor_aux").replacen("{}", &format!("{}", out.len() + 1), 1).replacen("{}", &wr.to_string(), 1).replacen("{}", &hr.to_string(), 1)
-                        };
-                        out.push(Monitor { name, x: rc.left, y: rc.top, w: wr, h: hr, primary });
+                        let index = out.len() + 1;
+                        out.push(Monitor { x: rc.left, y: rc.top, w: wr, h: hr, primary, index });
                     }
                     BOOL(1)
                 }
             }
-            let mut ctx = Ctx { out: &raw mut monitors, lang };
+            let mut ctx = Ctx { out: &raw mut monitors };
             let _ = EnumDisplayMonitors(HDC::default(), None, Some(enum_proc), LPARAM(&raw mut ctx as isize));
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        monitors.push(Monitor { name: "Screen".into(), x: 0, y: 0, w: 1920, h: 1080, primary: true });
+        monitors.push(Monitor { x: 0, y: 0, w: 1920, h: 1080, primary: true, index: 1 });
     }
     monitors
 }
@@ -119,6 +126,8 @@ struct App {
     redo_stack: Vec<Vec<Zone>>,
     thumb_cache: std::collections::HashMap<String, (u32, u32, Vec<u8>)>, // path → (w,h,rgba)
     lang: i18n::Lang,
+    tray_handle: Option<tray::TrayHandle>,
+    is_minimized: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -144,14 +153,14 @@ struct ZoneDrag {
 impl App {
     fn new() -> Self {
         let lang = Lang::default();
-        let monitors = get_monitors(lang);
+        let monitors = get_monitors();
         let cur = monitors.iter().position(|m| m.primary).unwrap_or(0);
         let m = &monitors[cur];
-        let zones = load_config(cur, m.w, m.h);
+        let zones = load_config(lang, cur, m.w, m.h);
         println!("[main] 启动: {} 个显示器, 主显示器=第{}个, sel_mons=[{}]", monitors.len(), cur, cur);
         for (i, mon) in monitors.iter().enumerate() {
             println!("[main]   显示器[{}]: '{}' origin=({},{}) {}x{} primary={}", 
-                i, mon.name, mon.x, mon.y, mon.w, mon.h, mon.primary);
+                i, mon.display_name(lang), mon.x, mon.y, mon.w, mon.h, mon.primary);
         }
         Self {
             mon_x: m.x, mon_y: m.y, mon_w: m.w, mon_h: m.h,
@@ -178,6 +187,8 @@ impl App {
             redo_stack: Vec::new(),
             thumb_cache: std::collections::HashMap::new(),
             lang,
+            tray_handle: tray::start(),
+            is_minimized: false,
         }
     }
 
@@ -218,7 +229,7 @@ impl App {
         let m = &self.monitors[idx];
         self.mon_x = m.x; self.mon_y = m.y;
         self.mon_w = m.w; self.mon_h = m.h;
-        self.zones = load_config(idx, m.w, m.h);
+        self.zones = load_config(self.lang, idx, m.w, m.h);
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.sel_zone = -1;
@@ -604,11 +615,11 @@ impl App {
         for (i, &mon_idx) in self.sel_mons.iter().enumerate() {
             if mon_idx >= self.monitors.len() { continue; }
             let m = &self.monitors[mon_idx];
-            self.status = self.trf3("organizing", i + 1, total_mons, &m.name);
+            self.status = self.trf3("organizing", i + 1, total_mons, &m.display_name(self.lang));
             let zones = if mon_idx == self.cur_mon {
                 self.zones.clone()
             } else {
-                load_config(mon_idx, m.w, m.h)
+                load_config(self.lang, mon_idx, m.w, m.h)
             };
             let zone_count = zones.iter().filter(|z| z.enabled).count();
             let total_zones = zones.len();
@@ -616,8 +627,9 @@ impl App {
                 match desktop::organize_icons(&zones, m.x, m.y, self.shape_spacing) {
                     Ok(count) => {
                         let child_count: usize = zones.iter().map(|z| z.children.iter().filter(|c| c.enabled).count()).sum();
+                        let mname = m.display_name(self.lang);
                         let detail = if child_count > 0 {
-                            format!("[{}] {}", m.name,
+                            format!("[{}] {}", mname,
                                 self.tr("organize_msg")
                                     .replacen("{}", &count.to_string(), 1)
                                     .replacen("{}", &count.to_string(), 1)
@@ -627,11 +639,11 @@ impl App {
                                     .replacen("{}", &total_zones.to_string(), 1)
                                     .replacen("{}", &child_count.to_string(), 1))
                         } else {
-                            format!("[{}] {}", m.name, self.trf4("organize_msg_simple", count, count, zone_count, total_zones))
+                            format!("[{}] {}", mname, self.trf4("organize_msg_simple", count, count, zone_count, total_zones))
                         };
                         msgs.push(detail);
                     }
-                    Err(e) => msgs.push(format!("[{}] {}", m.name, self.trf1("organize_error", e))),
+                    Err(e) => msgs.push(format!("[{}] {}", m.display_name(self.lang), self.trf1("organize_error", e))),
                 }
             }
         }
@@ -716,7 +728,105 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        // ── Capture HWND on first update (before any close/minimize) ──
+        {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static CAPTURED: AtomicU32 = AtomicU32::new(0);
+            // Only capture once; use Relaxed so we don't need Eq
+            if CAPTURED.load(Ordering::Relaxed) == 0 {
+                CAPTURED.store(1, Ordering::Relaxed);
+                if let Some(ref th) = self.tray_handle {
+                    if let Ok(h) = frame.window_handle() {
+                        if let RawWindowHandle::Win32(handle) = h.as_raw() {
+                            let hwnd = handle.hwnd.get() as isize;
+                            th.main_hwnd.store(hwnd, Ordering::Relaxed);
+                            eprintln!("[main] HWND captured: {:#x}", hwnd);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Tray: check events ──
+        if let Some(ref th) = self.tray_handle {
+            th.lang.store(self.lang as u8, std::sync::atomic::Ordering::Relaxed);
+            if th.exit_flag.load(std::sync::atomic::Ordering::SeqCst) {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+                return;
+            }
+            if th.show_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+                self.is_minimized = false;
+            }
+            if th.organize_flag.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                self.organize_selected();
+                self.status = self.tr("tray_organized").to_string();
+            }
+        }
+        // ── Close → minimize to tray (respects minimize_to_tray_flag) ──
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if let Some(ref th) = self.tray_handle {
+                if th.minimize_to_tray_flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    // Get the actual HWND from eframe's frame info (raw-window-handle)
+                    let mut captured_hwnd: isize = 0;
+                    if let Ok(h) = frame.window_handle() {
+                        #[cfg(target_os = "windows")]
+                        if let RawWindowHandle::Win32(handle) = h.as_raw() {
+                            captured_hwnd = handle.hwnd.get() as isize;
+                        }
+                    }
+                    if captured_hwnd != 0 {
+                        th.main_hwnd.store(captured_hwnd, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    // Apply WS_EX_TOOLWINDOW so window does NOT appear in taskbar
+                    // (so user sees only the tray icon, not both)
+                    if captured_hwnd != 0 {
+                        unsafe {
+                            use windows::Win32::UI::WindowsAndMessaging::{
+                                SetWindowLongPtrW, GetWindowLongPtrW, GWL_EXSTYLE,
+                            };
+                            use windows::Win32::UI::WindowsAndMessaging::WS_EX_TOOLWINDOW;
+                            let hwnd = windows::Win32::Foundation::HWND(captured_hwnd as *mut _);
+                            let cur = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+                            let _ = SetWindowLongPtrW(
+                                hwnd,
+                                GWL_EXSTYLE,
+                                cur | (WS_EX_TOOLWINDOW.0 as isize),
+                            );
+                        }
+                    }
+                    ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                    // Minimize (NOT hide) so winit/eframe event loop keeps running
+                    // for menu flag processing. WS_EX_TOOLWINDOW hides from taskbar.
+                    ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+                    self.is_minimized = true;
+                    self.status = self.tr("tray_minimized").to_string();
+                    return;
+                }
+            }
+        }
+        // ── Background auto-organize (event-driven by file-system watcher) ──
+        {
+            // Collect action flag before mutable self access
+            let do_organize = if let Some(ref th) = self.tray_handle {
+                let auto_enabled = th.auto_flag.load(std::sync::atomic::Ordering::SeqCst);
+                auto_enabled && th.desktop_changed.swap(false, std::sync::atomic::Ordering::SeqCst)
+            } else {
+                false
+            };
+            if do_organize {
+                self.organize_selected();
+                self.status = self.tr("tray_auto_organized").to_string();
+            }
+        }
+        // ── Keep event loop alive when minimized (fallback; minimized
+        //     windows should already keep event loop running) ──
+        if self.is_minimized {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
         let mon_w = self.mon_w;
         let mon_h = self.mon_h;
 
@@ -731,9 +841,10 @@ impl eframe::App for App {
         });
 
         egui::TopBottomPanel::top("toolbar").min_height(0.0).show(ctx, |ui| {
+            // ── Row 1: configuration controls ──
             ui.horizontal_wrapped(|ui| {
                 ui.label(self.tr("monitor_label"));
-                let names: Vec<String> = self.monitors.iter().map(|m| m.name.clone()).collect();
+                let names: Vec<String> = self.monitors.iter().map(|m| m.display_name(self.lang)).collect();
                 egui::ComboBox::from_id_salt("mon")
                     .selected_text(&names[self.cur_mon])
                     .show_ui(ui, |ui| {
@@ -745,12 +856,10 @@ impl eframe::App for App {
                                     if !self.sel_mons.contains(&i) {
                                         self.sel_mons.push(i);
                                         self.sel_mons.sort();
-                                        println!("[main]   sel_mons 新增 {}, 现在 = {:?}", i, self.sel_mons);
                                     }
                                     self.switch_to_monitor(i);
                                 } else {
                                     self.sel_mons.retain(|&x| x != i);
-                                    println!("[main]   sel_mons 移除 {}, 现在 = {:?}", i, self.sel_mons);
                                     if self.cur_mon == i && !self.sel_mons.is_empty() {
                                         self.switch_to_monitor(self.sel_mons[0]);
                                     }
@@ -777,7 +886,7 @@ impl eframe::App for App {
                 for &(key, pad) in densities {
                     if ui.selectable_label(self.grid_padding == pad, self.tr(key)).clicked() {
                         self.grid_padding = pad;
-                        self.zones = default_zones_with_padding(self.mon_w, self.mon_h, pad);
+                        self.zones = default_zones_with_padding(self.lang, self.mon_w, self.mon_h, pad);
                         self.sel_zone = -1;
                         self.load_editor(-1);
                         self.status = self.trf2("density_status", &self.tr(key), pad);
@@ -841,63 +950,72 @@ impl eframe::App for App {
                     self.load_editor(-1);
                     self.status = self.tr("clear_status").into();
                 }
+            }); // end row 1 horizontal_wrapped
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(self.tr("organize_btn")).clicked() {
-                        self.save_editor();
-                        save_config(&self.zones, self.cur_mon);
-                        println!("[main] sel_mons = {:?}", self.sel_mons);
-                        let mut msgs = Vec::new();
-                        for &mon_idx in &self.sel_mons {
-                            let m = &self.monitors[mon_idx];
-                            println!("[main] 处理显示器 {}: name={} origin=({},{})", mon_idx, m.name, m.x, m.y);
-                            let zones = if mon_idx == self.cur_mon {
-                                self.zones.clone()
-                            } else {
-                                load_config(mon_idx, m.w, m.h)
-                            };
-                            println!("[main]   zones count: {}", zones.len());
-                            unsafe {
-                                match desktop::organize_icons(&zones, m.x, m.y, self.shape_spacing) {
-                                    Ok(count) => {
-                                        let zone_count = zones.iter().filter(|z| z.enabled).count();
-                                        let total_zones = zones.len();
-                                        let child_cnt: usize = zones.iter().map(|z| z.children.iter().filter(|c| c.enabled).count()).sum();
-                                        let msg = if child_cnt > 0 {
-                                            self.trf5("organize_msg", count, zone_count, total_zones, zone_count, child_cnt)
-                                        } else {
-                                            self.trf4("organize_msg_simple", count, zone_count, total_zones, total_zones)
-                                        };
-                                        println!("[main]   结果: {}", msg);
-                                        msgs.push(format!("[{}] {}", m.name, msg));
-                                    }
-                                    Err(e) => { println!("[main]   错误: {}", e); msgs.push(format!("[{}] {}", m.name, self.trf1("organize_error", &e))); }
+            // ── Row 2: action buttons (self-contained wrapping row) ──
+            ui.horizontal_wrapped(|ui| {
+                if ui.button(self.tr("organize_btn")).clicked() {
+                    self.save_editor();
+                    save_config(&self.zones, self.cur_mon);
+                    println!("[main] sel_mons = {:?}", self.sel_mons);
+                    let mut msgs = Vec::new();
+                    for &mon_idx in &self.sel_mons {
+                        let m = &self.monitors[mon_idx];
+                        println!("[main] 处理显示器 {}: name={} origin=({},{})", mon_idx, m.display_name(self.lang), m.x, m.y);
+                        let zones = if mon_idx == self.cur_mon {
+                            self.zones.clone()
+                        } else {
+                            load_config(self.lang, mon_idx, m.w, m.h)
+                        };
+                        println!("[main]   zones count: {}", zones.len());
+                        unsafe {
+                            match desktop::organize_icons(&zones, m.x, m.y, self.shape_spacing) {
+                                Ok(count) => {
+                                    let zone_count = zones.iter().filter(|z| z.enabled).count();
+                                    let total_zones = zones.len();
+                                    let child_cnt: usize = zones.iter().map(|z| z.children.iter().filter(|c| c.enabled).count()).sum();
+                                    let msg = if child_cnt > 0 {
+                                        self.trf5("organize_msg", count, zone_count, total_zones, zone_count, child_cnt)
+                                    } else {
+                                        self.trf4("organize_msg_simple", count, zone_count, total_zones, total_zones)
+                                    };
+                                    println!("[main]   结果: {}", msg);
+                                    let mname = m.display_name(self.lang);
+                                    msgs.push(format!("[{}] {}", mname, msg));
                                 }
+                                Err(e) => { println!("[main]   错误: {}", e); msgs.push(format!("[{}] {}", m.display_name(self.lang), self.trf1("organize_error", &e))); }
                             }
                         }
-                        self.status = msgs.join("  |  ");
                     }
-                    if ui.button(self.tr("save_btn")).clicked() {
-                        self.save_editor();
-                        save_config(&self.zones, self.cur_mon);
-                        self.status = self.tr("save_status").into();
+                    self.status = msgs.join("  |  ");
+                }
+                if ui.button(self.tr("save_btn")).clicked() {
+                    self.save_editor();
+                    save_config(&self.zones, self.cur_mon);
+                    self.status = self.tr("save_status").into();
+                }
+                if ui.button(self.tr("reset_btn")).clicked() {
+                    self.push_undo();
+                    self.zones = default_zones(self.lang, self.mon_w, self.mon_h);
+                    self.sel_zone = -1;
+                    self.load_editor(-1);
+                    self.status = self.tr("reset_status").into();
+                }
+                ui.separator();
+                if ui.button(self.tr("import_btn")).clicked() {
+                    self.import_zones();
+                }
+                if ui.button(self.tr("export_btn")).clicked() {
+                    self.export_zones();
+                }
+                if self.tray_handle.is_some() {
+                    if ui.button(self.tr("tray_btn")).clicked() {
+                        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                        self.is_minimized = true;
+                        self.status = self.tr("tray_minimized").to_string();
                     }
-                    if ui.button(self.tr("reset_btn")).clicked() {
-                        self.push_undo();
-                        self.zones = default_zones(self.mon_w, self.mon_h);
-                        self.sel_zone = -1;
-                        self.load_editor(-1);
-                        self.status = self.tr("reset_status").into();
-                    }
-                    ui.separator();
-                    if ui.button(self.tr("import_btn")).clicked() {
-                        self.import_zones();
-                    }
-                    if ui.button(self.tr("export_btn")).clicked() {
-                        self.export_zones();
-                    }
-                });
-            });
+                }
+            }); // end row 2 horizontal_wrapped
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -944,13 +1062,14 @@ impl eframe::App for App {
                 };
                 painter.rect_stroke(zr, 0.0, stroke, StrokeKind::Middle);
                 // Zone title with shadow for contrast on any background
+                let dname = translate_zone_name(&z.name, self.lang);
                 let title_font = FontId::proportional(12.0);
                 painter.text(
-                    zmin + vec2(4.0, 3.0), Align2::LEFT_TOP, &z.name,
+                    zmin + vec2(4.0, 3.0), Align2::LEFT_TOP, &dname,
                     title_font.clone(), Color32::from_black_alpha(160),
                 );
                 painter.text(
-                    zmin + vec2(3.0, 2.0), Align2::LEFT_TOP, &z.name,
+                    zmin + vec2(3.0, 2.0), Align2::LEFT_TOP, &dname,
                     title_font, Color32::WHITE,
                 );
                 let cx = zmin.x + zr.width() * 0.5;
@@ -976,7 +1095,8 @@ impl eframe::App for App {
                     let dash_stroke = Stroke::new(cstroke.width, cstroke.color);
                     painter.rect_stroke(cr, 2.0, dash_stroke, StrokeKind::Middle);
                     // ">" prefix to distinguish from parent zones
-                    let child_label = format!("└ {}", child.name);
+                    let cdname = translate_zone_name(&child.name, self.lang);
+                    let child_label = format!("└ {}", cdname);
                     let child_font = FontId::proportional(10.0);
                     painter.text(
                         cmin + vec2(4.0, 3.0), Align2::LEFT_TOP, &child_label,
@@ -1448,10 +1568,11 @@ impl eframe::App for App {
                         .show(ui, |ui| {
                             for (i, z) in self.zones.iter().enumerate() {
                                 let sel = i as i32 == self.sel_zone;
+                                let zname = translate_zone_name(&z.name, self.lang);
                                 let label = if z.enabled {
-                                    format!("{}  [{},{} {}x{}]", z.name, z.x, z.y, z.width, z.height)
+                                    format!("{}  [{},{} {}x{}]", zname, z.x, z.y, z.width, z.height)
                                 } else {
-                                    format!("(off) {}  [{},{} {}x{}]", z.name, z.x, z.y, z.width, z.height)
+                                    format!("(off) {}  [{},{} {}x{}]", zname, z.x, z.y, z.width, z.height)
                                 };
                                 let resp = ui.selectable_label(sel, label);
                                 if resp.clicked() {
@@ -1759,7 +1880,7 @@ impl eframe::App for App {
                                                     egui::Id::new(format!("tt_{}", cls.name)),
                                                     |ui: &mut egui::Ui| {
                                                         ui.label(RichText::new(&cls.name).size(12.0));
-                                                        ui.label(RichText::new(self.trf1("category_type", &cls.category)).size(10.0).color(Color32::DARK_GRAY));
+                                                        ui.label(RichText::new(self.trf1("category_type", preset_name(self.lang, &cls.category))).size(10.0).color(Color32::DARK_GRAY));
                                                     },
                                                 );
                                             }
@@ -1816,6 +1937,13 @@ impl eframe::App for App {
                 // Ctrl+Y → Redo
                 if ctrl && *key == egui::Key::Y {
                     self.redo();
+                    continue;
+                }
+                // Ctrl+Alt+O → Minimize to Tray
+                if ctrl && mods.alt && *key == egui::Key::O {
+                    ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                    self.is_minimized = true;
+                    self.status = self.tr("tray_minimized").to_string();
                     continue;
                 }
                 // (Ctrl+Shift+Z also redo in some apps, same as Ctrl+Y)
@@ -1944,10 +2072,58 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 fn main() -> Result<(), eframe::Error> {
+    // ── Single-instance guard ─────────────────────────────────────
+    // If another copy is already running, show a localized warning
+    // and exit immediately. Mutex is held for the lifetime of the
+    // process; closed automatically on exit.
+    #[cfg(target_os = "windows")]
+    {
+        use windows::core::PCWSTR;
+        use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows::Win32::System::Threading::CreateMutexW;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            MessageBoxW, MB_ICONINFORMATION, MB_OK,
+        };
+        // Build a wide string "Local\DesktopOrganizerMutex_v1" at compile time.
+        let name: Vec<u16> = "Local\\DesktopOrganizerMutex_v1\0"
+            .encode_utf16().collect();
+        unsafe {
+            let _ = CreateMutexW(None, true, PCWSTR(name.as_ptr()));
+            let err = windows::Win32::Foundation::GetLastError();
+            if err == ERROR_ALREADY_EXISTS {
+                // Show a localized dialog (Lang::default() = Zh at first run;
+                // user can re-launch in their language later).
+                let title = i18n::t(i18n::Lang::default(), "already_running_title");
+                let msg   = i18n::t(i18n::Lang::default(), "already_running_msg");
+                let title_w: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+                let msg_w:   Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
+                MessageBoxW(
+                    None,
+                    PCWSTR(msg_w.as_ptr()),
+                    PCWSTR(title_w.as_ptr()),
+                    MB_OK | MB_ICONINFORMATION,
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    // ── Build shared icon for window title bar (matches tray icon) ─
+    let (rgba, size) = tray::icon_rgba();
+    let icon = if !rgba.is_empty() && size > 0 {
+        Some(IconData { rgba, width: size, height: size })
+    } else {
+        None
+    };
+
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([1000.0, 700.0])
-            .with_title("Desktop Organizer"),
+            .with_title("Desktop Organizer")
+            .with_icon(icon.unwrap_or_else(|| IconData {
+                rgba: vec![0u8; 16*16*4],
+                width: 16, height: 16,
+            })),
         ..Default::default()
     };
     eframe::run_native(
